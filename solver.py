@@ -331,8 +331,8 @@ def solve(board: Board, next_seq: List[str]) -> Optional[Solution]:
         # 現在の盤面を復元
         current_board = Board(
             grid=[list(row) for row in state.board_tuple],
-            rows=board.rows,
-            cols=board.cols
+            rows=len(state.board_tuple),
+            cols=len(state.board_tuple[0]) if state.board_tuple else 0
         )
         
         # 各列に投下を試す
