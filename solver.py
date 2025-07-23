@@ -27,13 +27,15 @@ class Board:
     grid: List[List[str]]  # grid[row][col], 'x'は空
     rows: int
     cols: int
+    max_height: int = 10  # 高さの上限
     
     def copy(self) -> 'Board':
         """盤面の深いコピーを返す"""
         return Board(
             grid=[row[:] for row in self.grid],
             rows=self.rows,
-            cols=self.cols
+            cols=self.cols,
+            max_height=self.max_height
         )
     
     def to_tuple(self) -> Tuple[Tuple[str, ...], ...]:
@@ -128,7 +130,7 @@ def parse_board(text: str) -> Board:
         if len(row) != cols:
             raise ValueError(f"Row {i+1} has {len(row)} columns, expected {cols}")
     
-    return Board(grid=grid_lines, rows=rows, cols=cols)
+    return Board(grid=grid_lines, rows=rows, cols=cols, max_height=10)
 
 
 def parse_next(seq: str) -> List[str]:
@@ -211,6 +213,35 @@ def remove_groups(board: Board, groups: List[Set[Position]]) -> Board:
     return new_board
 
 
+def extend_board_if_needed(board: Board) -> Board:
+    """
+    盤面の高さが足りない場合、上限まで拡張する
+    """
+    if board.rows >= board.max_height:
+        return board.copy()
+    
+    # 最上段に非空のセルがあるかチェック
+    needs_extension = False
+    for col in range(board.cols):
+        if board.grid[board.rows - 1][col] != 'x':
+            needs_extension = True
+            break
+    
+    if not needs_extension:
+        return board.copy()
+    
+    # 拡張が必要な場合
+    new_rows = min(board.rows + 1, board.max_height)
+    new_grid = [['x'] * board.cols for _ in range(new_rows)]
+    
+    # 既存のデータをコピー
+    for row in range(board.rows):
+        for col in range(board.cols):
+            new_grid[row][col] = board.grid[row][col]
+    
+    return Board(grid=new_grid, rows=new_rows, cols=board.cols, max_height=board.max_height)
+
+
 def resolve_chain(board: Board) -> Board:
     """
     連鎖を最後まで処理して最終盤面を返す
@@ -237,32 +268,34 @@ def drop_piece(board: Board, color: str, col: int) -> Tuple[Board, bool]:
     """
     指定列に色を投下し、(新盤面, 発火したか)を返す
     col は 0-indexed
+    高さが上限を超える場合は、上限に達した状態の盤面を作成
     """
-    new_board = board.copy()
+    # まず盤面を必要に応じて拡張
+    extended_board = extend_board_if_needed(board)
     
     # 投下位置を探す（一番下の空きマス）
     drop_row = -1
-    for row in range(new_board.rows):
-        if new_board.grid[row][col] == 'x':
+    for row in range(extended_board.rows):
+        if extended_board.grid[row][col] == 'x':
             drop_row = row
             break
     
     if drop_row == -1:
-        # 列が満杯
-        return new_board, False
+        # 列が満杯（高さ上限に達している）
+        return extended_board, False
     
     # ピースを配置
-    new_board.set(drop_row, col, color)
+    extended_board.set(drop_row, col, color)
     
     # 消去判定
-    groups = find_groups(new_board)
+    groups = find_groups(extended_board)
     fired = len(groups) > 0
     
     if fired:
         # 発火したら連鎖を最後まで処理
-        new_board = resolve_chain(new_board)
+        extended_board = resolve_chain(extended_board)
     
-    return new_board, fired
+    return extended_board, fired
 
 
 @dataclass(frozen=True)
@@ -327,6 +360,7 @@ def solve(board: Board, next_seq: List[str]) -> Optional[Solution]:
                         explored_nodes=explored_nodes
                     )
                 # 全消しできなかった（この枝は終了）
+                # 注: 現在の実装では発火後は投下終了
             else:
                 # まだ発火していない場合は探索を継続
                 new_state = State(
